@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>错题号管理 | MySQL OCP</title>
+  <script src="https://unpkg.com/vue@3.5.13/dist/vue.global.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: "微软雅黑", sans-serif; }
+    body { background: #f5f7fa; padding: 20px; max-width: 700px; margin: auto; color: #1a1a1a; }
+    h2 { margin-bottom: 1rem; }
+    h3 { margin-top: 1.5rem; }
+    ul { margin: 1rem 0; padding-left: 1rem; }
+    li { margin: .5rem 0; display: flex; justify-content: space-between; align-items: center; }
+    button { background: #1a73e8; color: #fff; border: none; padding: .35rem .75rem; border-radius: 4px; cursor: pointer; }
+    button.del { background: #e84545; }
+    button.small { padding: .25rem .5rem; font-size: .85rem; }
+    input { padding: .35rem .5rem; border: 1px solid #ccc; border-radius: 4px; width: 100%; }
+    .row { display: flex; gap: .5rem; margin-top: .5rem; }
+    .section { background:#fff; padding:1rem; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,.05); }
+    .note { font-size:.85rem; color:#666; margin-top:.25rem; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <h2>错题号管理</h2>
+
+    <div v-if="loading">加载中…</div>
+    <div v-else>
+      <!-- 自动记录错题号 -->
+      <div class="section">
+        <h3>正常答题记录的错题号</h3>
+        <p v-if="!autoNos.length">（当前没有自动记录的错题号）</p>
+        <ul v-else>
+          <li v-for="(no, idx) in autoNos" :key="'a'+idx">
+            <span>{{ no }}</span>
+            <button class="del small" title="从错题记录中移除" @click="removeAuto(idx)">✖</button>
+          </li>
+        </ul>
+        <div class="note">这些错题号来自正常练习中的答错记录。</div>
+      </div>
+
+      <!-- 自定义错题号 -->
+      <div class="section" style="margin-top:1.5rem;">
+        <h3>自定义错题号</h3>
+        <p v-if="!customNos.length">（当前没有自定义错题号）</p>
+        <ul v-else>
+          <li v-for="(no, idx) in customNos" :key="'c'+idx">
+            <span>{{ no }}</span>
+            <button class="del small" @click="removeCustom(idx)">✖</button>
+          </li>
+        </ul>
+
+        <div class="row">
+          <input v-model="newNo" placeholder="输入题号，如 123" />
+          <button @click="addCustom">添加</button>
+        </div>
+      </div>
+
+      <!-- 保存 / 刷新 -->
+      <div class="row" style="margin-top:1.5rem;">
+        <button @click="saveAll">保存</button>
+        <button style="background:#6c757d" @click="refresh">刷新</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 与后端交互的一些工具函数
+    const STORAGE_CANDIDATES = ['/index.html', '/'];
+    let storagePath = STORAGE_CANDIDATES[0]; // 找到后会覆盖
+
+    async function apiGet(key, urlPath) {
+      const target = encodeURIComponent(urlPath);
+      const r = await fetch(`/api/userdata?key=${encodeURIComponent(key)}&url=${target}`);
+      return r.ok ? r.json() : null;
+    }
+
+    async function apiSet(key, value, urlPath) {
+      await fetch('/api/userdata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value, url: urlPath })
+      });
+    }
+
+    const app = Vue.createApp({
+      data() {
+        return {
+          loading: true,
+          // 自定义 & 自动错题号
+          customNos: [],
+          autoNos: [],
+          // 保存自动错题完整对象，便于删除后同步保存
+          autoObjs: [],
+          newNo: ''
+        };
+      },
+      methods: {
+        // ---- 载入数据 ----
+        async refresh() {
+          this.loading = true;
+          await this.loadNos();
+          this.loading = false;
+        },
+        async loadNos() {
+          // 在可能的存储路径中寻找已有数据
+          for (const p of STORAGE_CANDIDATES) {
+            const [cus, wrong] = await Promise.all([
+              apiGet('ocp_custom_wrong_nos', p),
+              apiGet('ocp_wrong_questions', p)
+            ]);
+            if (cus || wrong) {
+              storagePath = p; // 记录路径
+            }
+            if (Array.isArray(cus)) this.customNos = cus;
+            if (Array.isArray(wrong)) {
+              this.autoObjs = wrong;
+              // 从问题文本中提取题号
+              this.autoNos = [...new Set(wrong.map(q => {
+                const match = q.question.match(/^### 试题 (\d+):/);
+                return match ? match[1] : null;
+              }).filter(Boolean))];
+            }
+            if (cus || wrong) return; // 找到任意数据就结束循环
+          }
+          // 若未找到任何数据
+          this.customNos = [];
+          this.autoNos  = [];
+          this.autoObjs = [];
+        },
+
+        // ---- 操作自定义错题号 ----
+        addCustom() {
+          const no = this.newNo.trim();
+          if (!/^\d+$/.test(no)) return alert('题号应为纯数字');
+          if (!this.customNos.includes(no)) this.customNos.push(no);
+          this.newNo = '';
+        },
+        removeCustom(idx) {
+          this.customNos.splice(idx, 1);
+        },
+
+        // ---- 操作自动错题号 ----
+        removeAuto(idx) {
+          const no = this.autoNos[idx];
+          // 从展示列表删除
+          this.autoNos.splice(idx, 1);
+          // 从对象数组中过滤，直接用正则比对q.question
+          this.autoObjs = this.autoObjs.filter(q => {
+            const match = q.question.match(/^### 试题 (\d+):/);
+            return match ? match[1] !== no : true;
+          });
+        },
+
+        // ---- 保存 ----
+        async saveAll() {
+          await Promise.all([
+            apiSet('ocp_custom_wrong_nos', this.customNos, storagePath),
+            apiSet('ocp_wrong_questions', this.autoObjs, storagePath)
+          ]);
+          alert('已保存！');
+        }
+      },
+      async mounted() {
+        await this.loadNos();
+        this.loading = false;
+      }
+    });
+
+    app.mount('#app');
+  </script>
+</body>
+
+</html>
