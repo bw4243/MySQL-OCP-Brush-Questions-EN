@@ -262,7 +262,13 @@
         <button class="control-button" @click="jumpToQuestion">
           跳到题号
         </button>
-        
+        <button class="control-button" @click="toggleShowAll">
+          {{ showAllQuestions ? '隐藏已答对' : '显示全部题目' }}
+        </button>
+        <button class="control-button" @click="openAnalysis">
+          题目解析
+        </button>
+
       </div>
     </div>
 
@@ -273,6 +279,9 @@
     <div v-if="currentQuestion && !loading">
       <div class="box">
         <span>{{ currentIndex + 1 }}/{{ questions.length }}</span>
+        <span v-if="allQuestions.length !== questions.length" style="color: #666; font-size: 0.9em;">
+          (题库总数: {{ allQuestions.length }}, 已答对: {{ correctQuestions.length }})
+        </span>
         <div v-html="renderMarkdown(currentQuestion.question)"></div>
         <br />
         <div v-for="(text, key) in currentQuestion.selections" :key="key" class="options">
@@ -317,10 +326,15 @@
   <script>
     // 新增：与服务器交互的通用方法
     async function getServerData(key) {
-      const url = `/api/userdata?key=${encodeURIComponent(key)}&url=${encodeURIComponent(location.pathname + location.search)}`;
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      return await res.json();
+      try {
+        const url = `/api/userdata?key=${encodeURIComponent(key)}&url=${encodeURIComponent(location.pathname + location.search)}`;
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        return await res.json();
+      } catch (error) {
+        console.error('获取服务器数据失败:', error);
+        return null;
+      }
     }
     async function setServerData(key, value) {
       const url = `/api/userdata`;
@@ -351,6 +365,9 @@
           loading: true, // 添加加载状态
           wrongQuestions: [],       // 👉 仍然保存错题对象
           customWrongNos: [],       // 👉 仅保存用户手工指定的题号（字符串）
+          currentMode: 'all',       // 👉 当前练习模式：'all' 或 'wrong'
+          progressData: {},         // 👉 进度数据
+          showAllQuestions: false,  // 👉 是否显示所有题目（包括已答对的）
         };
       },
       computed: {
@@ -365,12 +382,43 @@
             const response = await fetch('./questions.json');
             const data = await response.json();
             this.allQuestions = data; // 保存完整题库
-            this.questions = data.filter(q => !this.correctQuestions.some(cq => cq.question === q.question));
+
+            // 👉 根据 showAllQuestions 决定是否过滤已答对的题目
+            if (this.showAllQuestions) {
+              this.questions = data; // 显示所有题目
+            } else {
+              this.questions = data.filter(q => !this.correctQuestions.some(cq => cq.question === q.question));
+            }
           } catch (error) {
             console.error('加载题目失败:', error);
             alert('加载题目失败，请检查网络连接。');
           }
           this.loading = false;
+        },
+        // 👉 新增：保存进度
+        async saveProgress() {
+          const progressKey = `ocp_progress_${this.currentMode}`;
+          const progress = {
+            currentIndex: this.currentIndex,
+            mode: this.mode,
+            timestamp: Date.now()
+          };
+          this.progressData[this.currentMode] = progress;
+          await setServerData(progressKey, progress);
+        },
+        // 👉 新增：恢复进度
+        async loadProgress() {
+          const progressKey = `ocp_progress_${this.currentMode}`;
+          const progress = await getServerData(progressKey);
+          if (progress && progress.currentIndex !== undefined) {
+            this.currentIndex = Math.min(progress.currentIndex, this.questions.length - 1);
+            if (progress.mode) {
+              this.mode = progress.mode;
+            }
+            this.progressData[this.currentMode] = progress;
+            return true;
+          }
+          return false;
         },
         renderMarkdown(markdown) {
           return marked.parse(markdown);
@@ -379,16 +427,28 @@
           this.mode = this.mode === 'sequential' ? 'random' : 'sequential';
           this.startAllQuestions();
         },
-        startAllQuestions() {
-          this.fetchQuestions().then(() => {
-            this.shuffleIfNeeded();
+        async startAllQuestions() {
+          this.currentMode = 'all';
+          await this.fetchQuestions();
+          this.shuffleIfNeeded();
+
+          // 👉 尝试恢复进度
+          const hasProgress = await this.loadProgress();
+          if (hasProgress && this.questions.length > 0) {
+            this.currentQuestion = this.questions[this.currentIndex];
+            this.selectedAnswers = [];
+            this.result = null;
+            this.quizOver = false;
+          } else {
             this.resetQuiz();
-          });
+          }
         },
         async startWrongQuestions() {
+          this.currentMode = 'wrong';
+
           // 把自定义题号变成题目对象
           const customObjs = this.customWrongNos
-                .map(no => this.questions.find(q => q.no == no))
+                .map(no => this.allQuestions.find(q => q.no == no))
                 .filter(Boolean);
 
           const pool = [...this.wrongQuestions, ...customObjs];
@@ -396,7 +456,17 @@
 
           this.questions = pool;
           this.shuffleIfNeeded();
-          this.resetQuiz();
+
+          // 👉 尝试恢复进度
+          const hasProgress = await this.loadProgress();
+          if (hasProgress && this.questions.length > 0) {
+            this.currentQuestion = this.questions[this.currentIndex];
+            this.selectedAnswers = [];
+            this.result = null;
+            this.quizOver = false;
+          } else {
+            this.resetQuiz();
+          }
         },
         shuffleIfNeeded() {
           if (this.mode === 'random') {
@@ -462,13 +532,14 @@
             await setServerData('ocp_wrong_questions', this.wrongQuestions);
           }
         },
-        nextQuestion() {
+        async nextQuestion() {
           this.currentIndex++;
           this.selectedAnswers = [];
           this.result = null;
 
           if (this.currentIndex < this.questions.length) {
             this.currentQuestion = this.questions[this.currentIndex];
+            await this.saveProgress(); // 👉 保存进度
           } else {
             this.currentQuestion = null;
             this.quizOver = true;
@@ -495,7 +566,7 @@
             alert('该题号已存在');
           }
         },
-        jumpToQuestion() {
+        async jumpToQuestion() {
           // 👉 题库可能在两种场景：做练习 / 刷错题
           const total = this.questions.length;
           if (total === 0) return alert('暂无题目');
@@ -511,6 +582,10 @@
           // ✨ 关键：同步当前索引 & 题目
           this.currentIndex = no - 1;            // 组件里本来就有 currentIndex
           this.currentQuestion = this.questions[this.currentIndex];
+          this.selectedAnswers = [];
+          this.result = null;
+
+          await this.saveProgress(); // 👉 保存进度
 
           // 如果你用的是显示器或移动端分页组件，可能需要强制刷新 UI：
           this.$nextTick(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
@@ -518,31 +593,66 @@
         manageWrongNos() {
           window.open('manage.html', '_blank');
         },
-        previousQuestion() {
+        async previousQuestion() {
           this.currentIndex--;
           this.selectedAnswers = [];
           this.result = null;
           if (this.currentIndex >= 0) {
             this.currentQuestion = this.questions[this.currentIndex];
+            await this.saveProgress(); // 👉 保存进度
           }
         },
-        skipQuestion() {
+        async skipQuestion() {
           this.currentIndex++;
           this.selectedAnswers = [];
           this.result = null;
           if (this.currentIndex < this.questions.length) {
             this.currentQuestion = this.questions[this.currentIndex];
+            await this.saveProgress(); // 👉 保存进度
           }
+        },
+        // 👉 新增：切换显示所有题目
+        async toggleShowAll() {
+          this.showAllQuestions = !this.showAllQuestions;
+          await this.startAllQuestions(); // 重新加载题目
+        },
+        // 👉 新增：打开题目解析页面
+        openAnalysis() {
+          window.open('analysis.html', '_blank');
         },
       },
       async mounted() {
-        // 初始化时从服务器获取数据
-        const wrong = await getServerData('ocp_wrong_questions');
-        const correct = await getServerData('ocp_correct_questions');
-        this.wrongQuestions = Array.isArray(wrong) ? wrong : [];
-        this.correctQuestions = Array.isArray(correct) ? correct : [];
-        this.startAllQuestions();
-        this.customWrongNos = await getServerData('ocp_custom_wrong_nos') || [];
+        try {
+          console.log('开始初始化...');
+
+          // 先尝试简单加载题目
+          await this.fetchQuestions();
+          console.log('题目加载完成，数量:', this.allQuestions.length);
+
+          if (this.questions.length > 0) {
+            this.currentQuestion = this.questions[0];
+            this.currentIndex = 0;
+            console.log('设置当前题目:', this.currentQuestion ? '成功' : '失败');
+          }
+
+          // 然后加载用户数据（错题、进度等）
+          try {
+            const wrong = await getServerData('ocp_wrong_questions');
+            const correct = await getServerData('ocp_correct_questions');
+            this.wrongQuestions = Array.isArray(wrong) ? wrong : [];
+            this.correctQuestions = Array.isArray(correct) ? correct : [];
+            this.customWrongNos = await getServerData('ocp_custom_wrong_nos') || [];
+            console.log('用户数据加载完成');
+          } catch (userDataError) {
+            console.warn('用户数据加载失败，使用默认值:', userDataError);
+            // 用户数据加载失败不应该阻止题目显示
+          }
+
+        } catch (error) {
+          console.error('初始化失败:', error);
+          this.loading = false;
+          alert('初始化失败，请刷新页面重试: ' + error.message);
+        }
       }
     });
 

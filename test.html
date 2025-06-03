@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>MySQL OCP - 测试版</title>
+  <script src="https://unpkg.com/vue@3.5.13/dist/vue.global.js"></script>
+  <style>
+    body {
+      font-family: "微软雅黑", sans-serif;
+      padding: 20px;
+      max-width: 960px;
+      margin: auto;
+    }
+    .box {
+      background-color: #fafafa;
+      margin-bottom: 1rem;
+      padding: 1rem;
+      border-radius: 6px;
+      border: 1px solid #ddd;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="box">
+      <h2>MySQL OCP - 测试版</h2>
+      <p>Loading状态: {{ loading }}</p>
+      <p>题目总数: {{ questions.length }}</p>
+      <p>当前题目: {{ currentQuestion ? '有' : '无' }}</p>
+      <button @click="testLoad">测试加载</button>
+    </div>
+
+    <div v-if="loading" class="box">
+      <p>加载中...</p>
+    </div>
+
+    <div v-if="!loading && questions.length > 0" class="box">
+      <h3>第一道题目:</h3>
+      <pre>{{ questions[0].question.substring(0, 200) }}...</pre>
+    </div>
+
+    <div v-if="error" class="box" style="color: red;">
+      <h3>错误信息:</h3>
+      <p>{{ error }}</p>
+    </div>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          loading: true,
+          questions: [],
+          currentQuestion: null,
+          error: null
+        };
+      },
+      methods: {
+        async testLoad() {
+          this.loading = true;
+          this.error = null;
+          try {
+            console.log('开始加载题目...');
+            const response = await fetch('./questions.json');
+            console.log('Response status:', response.status);
+            
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            console.log('加载的题目数量:', data.length);
+            
+            this.questions = data;
+            this.currentQuestion = data[0] || null;
+            
+          } catch (error) {
+            console.error('加载失败:', error);
+            this.error = error.message;
+          } finally {
+            this.loading = false;
+            console.log('加载完成，loading状态:', this.loading);
+          }
+        }
+      },
+      async mounted() {
+        console.log('组件挂载，开始测试加载...');
+        await this.testLoad();
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
