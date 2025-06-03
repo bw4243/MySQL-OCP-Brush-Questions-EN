@@ -401,21 +401,25 @@
           const progress = {
             currentIndex: this.currentIndex,
             mode: this.mode,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            questionsLength: this.questions.length
           };
           this.progressData[this.currentMode] = progress;
           await setServerData(progressKey, progress);
+          console.log('进度已保存:', progress);
         },
         // 👉 新增：恢复进度
         async loadProgress() {
           const progressKey = `ocp_progress_${this.currentMode}`;
           const progress = await getServerData(progressKey);
-          if (progress && progress.currentIndex !== undefined) {
-            this.currentIndex = Math.min(progress.currentIndex, this.questions.length - 1);
+          if (progress && progress.currentIndex !== undefined && this.questions.length > 0) {
+            // 确保索引在有效范围内
+            this.currentIndex = Math.max(0, Math.min(progress.currentIndex, this.questions.length - 1));
             if (progress.mode) {
               this.mode = progress.mode;
             }
             this.progressData[this.currentMode] = progress;
+            console.log('进度已恢复:', progress, '当前索引:', this.currentIndex);
             return true;
           }
           return false;
@@ -432,6 +436,13 @@
           await this.fetchQuestions();
           this.shuffleIfNeeded();
 
+          // 👉 首先检查URL参数
+          const hasUrlParam = this.checkUrlParams();
+          if (hasUrlParam) {
+            await this.saveProgress(); // 保存URL参数指定的进度
+            return;
+          }
+
           // 👉 尝试恢复进度
           const hasProgress = await this.loadProgress();
           if (hasProgress && this.questions.length > 0) {
@@ -439,8 +450,10 @@
             this.selectedAnswers = [];
             this.result = null;
             this.quizOver = false;
+            console.log('已恢复到题目:', this.currentIndex + 1, '/', this.questions.length);
           } else {
             this.resetQuiz();
+            console.log('开始新的练习');
           }
         },
         async startWrongQuestions() {
@@ -464,8 +477,10 @@
             this.selectedAnswers = [];
             this.result = null;
             this.quizOver = false;
+            console.log('已恢复错题练习到题目:', this.currentIndex + 1, '/', this.questions.length);
           } else {
             this.resetQuiz();
+            console.log('开始新的错题练习');
           }
         },
         shuffleIfNeeded() {
@@ -540,9 +555,11 @@
           if (this.currentIndex < this.questions.length) {
             this.currentQuestion = this.questions[this.currentIndex];
             await this.saveProgress(); // 👉 保存进度
+            console.log('切换到下一题:', this.currentIndex + 1, '/', this.questions.length);
           } else {
             this.currentQuestion = null;
             this.quizOver = true;
+            console.log('练习完成');
           }
         },
         async clearCache() {
@@ -584,8 +601,10 @@
           this.currentQuestion = this.questions[this.currentIndex];
           this.selectedAnswers = [];
           this.result = null;
+          this.quizOver = false;
 
           await this.saveProgress(); // 👉 保存进度
+          console.log('跳转到题目:', this.currentIndex + 1, '/', this.questions.length);
 
           // 如果你用的是显示器或移动端分页组件，可能需要强制刷新 UI：
           this.$nextTick(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
@@ -600,6 +619,7 @@
           if (this.currentIndex >= 0) {
             this.currentQuestion = this.questions[this.currentIndex];
             await this.saveProgress(); // 👉 保存进度
+            console.log('切换到上一题:', this.currentIndex + 1, '/', this.questions.length);
           }
         },
         async skipQuestion() {
@@ -609,6 +629,11 @@
           if (this.currentIndex < this.questions.length) {
             this.currentQuestion = this.questions[this.currentIndex];
             await this.saveProgress(); // 👉 保存进度
+            console.log('跳过到下一题:', this.currentIndex + 1, '/', this.questions.length);
+          } else {
+            this.currentQuestion = null;
+            this.quizOver = true;
+            console.log('练习完成');
           }
         },
         // 👉 新增：切换显示所有题目
@@ -620,22 +645,30 @@
         openAnalysis() {
           window.open('analysis.html', '_blank');
         },
+        // 👉 新增：检查URL参数并跳转到指定题目
+        checkUrlParams() {
+          const urlParams = new URLSearchParams(window.location.search);
+          const questionParam = urlParams.get('q');
+          if (questionParam) {
+            const questionNumber = parseInt(questionParam);
+            if (questionNumber > 0 && questionNumber <= this.questions.length) {
+              this.currentIndex = questionNumber - 1;
+              this.currentQuestion = this.questions[this.currentIndex];
+              this.selectedAnswers = [];
+              this.result = null;
+              this.quizOver = false;
+              console.log('从URL参数跳转到题目:', questionNumber);
+              return true;
+            }
+          }
+          return false;
+        },
       },
       async mounted() {
         try {
           console.log('开始初始化...');
 
-          // 先尝试简单加载题目
-          await this.fetchQuestions();
-          console.log('题目加载完成，数量:', this.allQuestions.length);
-
-          if (this.questions.length > 0) {
-            this.currentQuestion = this.questions[0];
-            this.currentIndex = 0;
-            console.log('设置当前题目:', this.currentQuestion ? '成功' : '失败');
-          }
-
-          // 然后加载用户数据（错题、进度等）
+          // 先加载用户数据（错题、进度等）
           try {
             const wrong = await getServerData('ocp_wrong_questions');
             const correct = await getServerData('ocp_correct_questions');
@@ -647,6 +680,10 @@
             console.warn('用户数据加载失败，使用默认值:', userDataError);
             // 用户数据加载失败不应该阻止题目显示
           }
+
+          // 然后加载题目并尝试恢复进度
+          this.currentMode = 'all'; // 默认模式
+          await this.startAllQuestions(); // 这会加载题目并尝试恢复进度
 
         } catch (error) {
           console.error('初始化失败:', error);
