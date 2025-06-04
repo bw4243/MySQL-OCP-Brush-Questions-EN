@@ -16,7 +16,7 @@
       outline: none;
       background-color: transparent;
       list-style: circle;
-      line-height: 1.5rem;
+      line-height: 1.6rem;
 
     }
 
@@ -24,10 +24,11 @@
       font-family: "微软雅黑", sans-serif;
       background-color: #f5f7fa;
       padding: 20px;
-      max-width: 960px;
+      max-width: 1200px;
       margin: auto;
       background-color: #eeeeee;
       color: #1a1a1a;
+      font-size: 16px;
 
     }
 
@@ -45,6 +46,7 @@
       background-color: #42b983;
       color: white;
       font-weight: bold;
+      font-size: 15px;
     }
 
 
@@ -54,6 +56,7 @@
       padding: 1rem;
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
       border-radius: 6px;
+      font-size: 17px;
     }
 
     .option {
@@ -96,8 +99,11 @@
     }
 
     input[type=checkbox] {
-      margin-right: 10px;
+      margin-right: 12px;
       cursor: pointer;
+      width: 18px;
+      height: 18px;
+      transform: scale(1.2);
     }
 
     a {
@@ -139,6 +145,14 @@
     h4,
     p {
       margin-top: 0.5rem;
+    }
+
+    h1, h2 {
+      font-size: 1.4em;
+    }
+
+    h3, h4 {
+      font-size: 1.2em;
     }
 
     table {
@@ -186,10 +200,11 @@
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      line-height: 1.5;
+      line-height: 1.6;
       word-break: break-word;
       cursor: pointer;
       padding: 0.5rem 0.25rem;
+      font-size: 17px;
 
     }
 
@@ -201,10 +216,10 @@
       display: grid;
       grid-template-columns: auto auto 1fr;
       /* input | key | body */
-      align-items: baseline;
-      /* 让文字基线对齐 */
-      gap: 8px;
-      /* 可选：增加一点间距 */
+      align-items: center;
+      /* 让元素居中对齐 */
+      gap: 10px;
+      /* 增加间距适应更大的checkbox */
     }
 
     /* 可选美化 */
@@ -239,6 +254,60 @@
 
     label * {
       margin: 0;
+    }
+
+    /* 响应式布局优化 */
+    @media (min-width: 768px) {
+      body {
+        padding: 30px;
+      }
+      .controls {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .box {
+        padding: 1.5rem;
+      }
+    }
+
+    @media (max-width: 767px) {
+      body {
+        padding: 15px;
+        max-width: none;
+        font-size: 18px;
+      }
+      .controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+      }
+      .control-button {
+        margin-right: 0;
+        margin-bottom: 0.5rem;
+        font-size: 16px;
+        padding: 0.5rem 1rem;
+      }
+      .box {
+        padding: 1rem;
+        font-size: 18px;
+      }
+      .selection-label {
+        font-size: 18px;
+        padding: 0.75rem 0.5rem;
+        line-height: 1.7;
+      }
+      h1, h2 {
+        font-size: 1.5em;
+      }
+      h3, h4 {
+        font-size: 1.3em;
+      }
+      input[type=checkbox] {
+        width: 20px;
+        height: 20px;
+        transform: scale(1.4);
+        margin-right: 15px;
+      }
     }
   </style>
 </head>
@@ -367,7 +436,7 @@
           customWrongNos: [],       // 👉 仅保存用户手工指定的题号（字符串）
           currentMode: 'all',       // 👉 当前练习模式：'all' 或 'wrong'
           progressData: {},         // 👉 进度数据
-          showAllQuestions: false,  // 👉 是否显示所有题目（包括已答对的）
+          showAllQuestions: true,   // 👉 是否显示所有题目（包括已答对的）
         };
       },
       computed: {
